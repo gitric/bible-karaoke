@@ -1,4 +1,4 @@
-const { record } = require("./record-frames");
+// const { record } = require("./record-frames");
 const fs = require("fs");
 const path = require("path");
 const tempy = require("tempy");
@@ -21,6 +21,8 @@ const fallbackFontBold = "normal";
 const fallbackBgColor = "#CCC";
 const fallbackVideoSrc = "";
 
+const _ = require("lodash");
+
 // (async function mainIIFE() {
 //     try {
 //         await render('./src/rendering/lrc.json', './src/rendering/testBG.jpg', false, 'Kayan Unicode');
@@ -28,6 +30,12 @@ const fallbackVideoSrc = "";
 //         console.error(error);
 //     }
 // })();
+
+const workerpool = require('workerpool');
+const pool = workerpool.pool(__dirname + '/record-frames.js', { workerType: "thread"});
+
+const os = require('os')
+const cpuCount = os.cpus().length;
 
 async function render(timingFilePath, bgType, bgFilePath, bgColor, font, fontColor, fontSize, fontItalic, fontBold, highlightColor, speechBubbleColor, speechBubbleOpacity, notifyEvent) {
     let timingObj = require(timingFilePath);
@@ -40,9 +48,9 @@ async function render(timingFilePath, bgType, bgFilePath, bgColor, font, fontCol
 
     // fs.writeFileSync(path.join(outputLocation, "renderedAnimation.html"), htmlContent);
     
-    // console.log(htmlContent)
+    console.log(htmlContent)
 
-    await record({
+    var standardOptions = {
         browser: null, // Optional: a puppeteer Browser instance,
         page: null, // Optional: a puppeteer Page instance,
         // ffmpeg: ffmpegLocation,
@@ -50,21 +58,45 @@ async function render(timingFilePath, bgType, bgFilePath, bgColor, font, fontCol
         output: outputLocation,
         fps,
         frames: Math.round(fps * duration), // duration in seconds at fps (15)
-        prepare: async function(browser, page) {
-            await page.setViewport({
-                width: 720,
-                height: 480
-            });
-            await page.setContent(htmlContent);
-        },
-        render: async (browser, page, frame) => {
-            await page.evaluate(() => {
-                //executing in browser
-                renderNextFrame();
-            });
-        },
-        notify: notifyEvent
+        htmlContent: htmlContent,
+        framesBeg:1,
+        framesEnd: 100, // change this!
+    };
+
+    var allRecords = [];
+    var lastBatchFrame = 0;
+    var blockSize = Math.floor(standardOptions.frames / cpuCount);
+    for (var i=0; i <cpuCount; i++) {
+        var options = _.clone(standardOptions);
+        options.framesBeg = lastBatchFrame + 1;
+        options.framesEnd = lastBatchFrame + blockSize;
+        // if this is our last run, then pass on all the remaining frames:
+        if (i+1 == cpuCount) {
+            options.framesEnd = options.frames;
+        }
+        lastBatchFrame = options.framesEnd;
+        allRecords.push(pool.exec('record', [options]))
+    }
+
+    // now watch for the files to show up and report back to Interface progress
+    function watch() {
+        console.log("pool stats:", pool.stats());
+        console.log("isMainThread:", pool.isMainThread);
+        fs.readdir(outputLocation, (err, files) => {
+            if (err) {
+                console.error(err);
+                return;
+            }
+            notifyEvent.emit("rendered", { curr: files.length, total: standardOptions.frames });
+        })
+    }
+    var watchInterval = setInterval(watch, 1000);
+
+    await Promise.all(allRecords)
+    .then(()=>{
+        return pool.terminate();
     });
+    clearInterval(watchInterval);
     return outputLocation;
 }
 

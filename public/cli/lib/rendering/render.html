@@ -15,7 +15,13 @@
             letter-spacing: .05em;
             margin: 0
         }
-
+        #currentFrame {
+            position: absolute;
+            top: 0;
+            right: 0;
+            font-size: 18px;
+            color: black;
+        }
         .subs span {
             color: white;
             /* text-transform: capitalize; */
@@ -256,6 +262,7 @@
                 w.currentTime = curPos;
             });
             document.getElementById('bgVideo').currentTime = curPos/1000;
+            document.getElementById('currentFrame').innerHTML = "Time: " + time + " Pos: " + curPos;
         }
     </script>
     <!-- this comment get's replaced with content that has the background image
@@ -264,6 +271,7 @@
     <meta name="data-replace">
 </head>
 <body>
+    <div id="currentFrame">Time: 0 Pos: 0</div>
     <div id="imgParent">
         <div class="line subs karaoke-caption" id="subtitles2"></div>
         <video muted loop id="bgVideo">
