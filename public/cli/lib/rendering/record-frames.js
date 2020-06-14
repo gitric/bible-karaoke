@@ -13,9 +13,14 @@ function record(options) {
     var browser = null;
     var page = null;
     var outLocation = options.output;
+
+    // when things get passed through the workerpool inter process communications
+    // sometimes numbers get passed as "strings":
     options.framesBeg = parseInt(options.framesBeg);
     options.framesEnd = parseInt(options.framesEnd);
 
+    // NOTE: couldn't get the async / await semantics to work properly with
+    // the workerpool library.  So back to the old school Promise.chain():
     return Promise.resolve()
     .then(()=>{
         // NOTE: running puppeteer inside Docker is a PAIN!
@@ -40,6 +45,9 @@ function record(options) {
         return new Promise((resolve, reject) =>{
 
             function doOne(i, cb) {
+                // @function do One
+                // recursive fn() to process each frame 
+                // we stop when i is past our last frame: .framesEnd
                 if (i > options.framesEnd) {
                     cb();
                 } else {
@@ -47,6 +55,7 @@ function record(options) {
                     renderPage(browser, page, i)
                     .then(()=>{
 
+                        // save a screen shot for this rendered frame:
                         const paddedIndex = `${i}`.padStart(6, "0");
                         let fileName = `frame_${paddedIndex}.png`;
                         return page.screenshot({
@@ -56,22 +65,29 @@ function record(options) {
 
                     })
                     .then(()=>{
+                        // move on to the next frame:
                         doOne(i+1, cb);
                     })
                 }
             }
+
+            // start the process with the 1st frame: .framesBeg
             doOne(options.framesBeg, (err) => {
                 resolve();
             })
         })
     })
     .then(()=>{
+        // after we are done, go through the process of closing out our
+        // browsers and pages:
         return page.close()
         .then(()=>{
             return browser.close();
         });
     })
     .catch(()=>{
+        // be sure to go through the process of closing out our
+        // browsers and pages if we had an error too:
         return page.close()
         .then(()=>{
             return browser.close();
@@ -80,54 +96,18 @@ function record(options) {
 
 };
 
-
-
-
-// async function record(options) {
-//     // chronium.path may or may provide a path in an asar archive.  If it does
-//     // it is unusable, and we'll attempt to swap it out for the unarchived version
-//     const chromiumPath = chromium.path.replace('app.asar', 'app.asar.unpacked');
-
-//     // NOTE: running puppeteer inside Docker is a PAIN!
-//     // run with --no-sandbox until a better solution is figured out.
-//     const browser =
-//         options.browser ||
-//         (await puppeteer.launch({
-//             executablePath: chromiumPath,
-//             args: ["--no-sandbox", "--disable-setuid-sandbox"]
-//         }));
-//     const page = options.page || (await browser.newPage());
-
-//     await preparePage(browser, page, options.htmlContent);
-
-//     //   var ffmpegPath = options.ffmpeg || 'ffmpeg';
-//     var fps = options.fps || 60;
-
-//     var outLocation = options.output;
-
-//     for (let i = options.frameBeg; i <= options.frameEnd; i++) {
-//         // if (options.logEachFrame)
-//         //     console.log(
-//         //         `[puppeteer-recorder] rendering frame ${i} of ${options.frames}.`
-//         //     );
-
-//         await renderPage(browser, page, i);
-//         const paddedIndex = `${i}`.padStart(6, "0");
-//         let fileName = `frame_${paddedIndex}.png`;
-//         let screenshot = await page.screenshot({
-//             omitBackground: false,
-//             path: path.join(outLocation, fileName)
-//         });
-//         // if (options.notify) {
-//         //     options.notify.emit("rendered", { curr: i, total: options.frames });
-//         // }
-//     }
-//     await browser.close();
-//     //   ffmpeg.stdin.end();
-
-//     //   await closed;
-// };
-
+/**
+ * @function preparePage
+ * perform the initial Puppeteer setup of the page that will be generating
+ * the frames for us.
+ * @param {Browser} browser 
+ *        The Puppeteer Browser object
+ * @param {PuppeteerPage} page
+ *        The Puppeteer Page object
+ * @param {html} htlmContent
+ *        The html content that should be displayed on the page.
+ * @return {Promise}
+ */
 async function preparePage(browser, page, htmlContent) {
     await page.setViewport({
         width: 720,
@@ -136,6 +116,17 @@ async function preparePage(browser, page, htmlContent) {
     await page.setContent(htmlContent);
 }
 
+/**
+ * @function renderPage
+ * Tell the page to render a specific frame 
+ * @param {Browser} browser 
+ *        The Puppeteer Browser object
+ * @param {PuppeteerPage} page
+ *        The Puppeteer Page object
+ * @param {int} frame
+ *        The frame # that should be rendered
+ * @return {Promise}
+ */
 function renderPage(browser, page, frame) {
     return page.evaluate((nextFrame) => {
         //executing in browser
@@ -143,10 +134,15 @@ function renderPage(browser, page, frame) {
     }, frame)
 }
 
+// Create an instance of the workerpool worker.
 workerpool.worker({
     record
+    // we expose 1 method: record
 })
 
+/*
+ * Anyone know why these are here?
+ *
 const ffmpegArgs = (fps) => [
     "-y",
     "-f",
@@ -172,3 +168,4 @@ const write = (stream, buffer) =>
             else resolve();
         });
     });
+*/

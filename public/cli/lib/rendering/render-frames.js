@@ -31,11 +31,22 @@ const _ = require("lodash");
 //     }
 // })();
 
+//
+// Parallel Processing:
+// we are using the workerpool library to create workers on other threads/processes that
+// can perform the rendering.
 const workerpool = require('workerpool');
 const pool = workerpool.pool(__dirname + '/record-frames.js', { workerType: "thread"});
 
 const os = require('os')
-const cpuCount = os.cpus().length;
+var cpuCount = os.cpus().length-1;
+if (cpuCount < 1) cpuCount = 1;
+// {int} cpuCount
+// this is the # of cpus (cores) that our node process can detect.
+// we will create a worker for each core and divide all the frames to be generated
+// across these workers.
+// NOTE: it seems that workerpool will only create cpuCount - 1 workers to run at a time.
+// so we use (# cpus -1) workers to ensure the WHOLE # frames are done in parallel.
 
 async function render(timingFilePath, bgType, bgFilePath, bgColor, font, fontColor, fontSize, fontItalic, fontBold, highlightColor, speechBubbleColor, speechBubbleOpacity, notifyEvent) {
     let timingObj = require(timingFilePath);
@@ -47,9 +58,9 @@ async function render(timingFilePath, bgType, bgFilePath, bgColor, font, fontCol
     let outputLocation = tempy.directory();
 
     // fs.writeFileSync(path.join(outputLocation, "renderedAnimation.html"), htmlContent);
-    
-    console.log(htmlContent)
+    // console.log(htmlContent)
 
+    // create a set of options for each of the workers we will create.
     var standardOptions = {
         browser: null, // Optional: a puppeteer Browser instance,
         page: null, // Optional: a puppeteer Page instance,
@@ -59,44 +70,72 @@ async function render(timingFilePath, bgType, bgFilePath, bgColor, font, fontCol
         fps,
         frames: Math.round(fps * duration), // duration in seconds at fps (15)
         htmlContent: htmlContent,
-        framesBeg:1,
-        framesEnd: 100, // change this!
+        framesBeg:1,    // change this on each worker:
+        framesEnd: 100, // change this on each worker
     };
 
     var allRecords = [];
+    // {array} allRecords
+    // an array of the worker thread {Promises} that are recording the frames.
+
     var lastBatchFrame = 0;
+    // {int} lastBatchFrame
+    // The Frame # that the last batch left off calculating
+
     var blockSize = Math.floor(standardOptions.frames / cpuCount);
+    // {int} blockSize
+    // the # of frames each worker will be responsible for creating
+
+    // for each cpu that can handle a worker:
     for (var i=0; i <cpuCount; i++) {
+
+        // make a copy of the options
         var options = _.clone(standardOptions);
+
+        // calculate which set of frames this batch is required to make
         options.framesBeg = lastBatchFrame + 1;
         options.framesEnd = lastBatchFrame + blockSize;
+
         // if this is our last run, then pass on all the remaining frames:
         if (i+1 == cpuCount) {
             options.framesEnd = options.frames;
         }
         lastBatchFrame = options.framesEnd;
+
+        // start the render job
+        console.log(`render job ${i+1}: ${options.framesBeg} - ${options.framesEnd}`);
         allRecords.push(pool.exec('record', [options]))
     }
 
     // now watch for the files to show up and report back to Interface progress
     function watch() {
-        console.log("pool stats:", pool.stats());
-        console.log("isMainThread:", pool.isMainThread);
+        // instead of each render job reporting back directly (can't do that any more)
+        // this thread will simply scan the files and report back the # of files that 
+        // have been created.  There should be 1 file for each frame being rendered.
+
+        // console.log("pool stats:", pool.stats());
+        // console.log("isMainThread:", pool.isMainThread);
+
         fs.readdir(outputLocation, (err, files) => {
             if (err) {
                 console.error(err);
                 return;
             }
+            // report to the UI the progress:
             notifyEvent.emit("rendered", { curr: files.length, total: standardOptions.frames });
         })
     }
+    // report back every second
     var watchInterval = setInterval(watch, 1000);
 
+    // once all workers have finished, then close things down:
     await Promise.all(allRecords)
     .then(()=>{
         return pool.terminate();
     });
     clearInterval(watchInterval);
+
+    // report back the outputLocation
     return outputLocation;
 }
 
