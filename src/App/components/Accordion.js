@@ -12,7 +12,7 @@ import {
 import ActionButton from './ActionButton';
 import './Accordion.scss';
 
-@inject('store')
+@inject('appState')
 @observer
 class Accordion extends React.PureComponent {
   constructor(props) {
@@ -35,7 +35,7 @@ class Accordion extends React.PureComponent {
   render() {
     const {
       cards,
-      store: { stepStatus },
+      appState: { stepStatus },
     } = this.props;
     const { currentCardIndex } = this.state;
     return (
