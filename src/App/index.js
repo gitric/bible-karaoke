@@ -1,10 +1,11 @@
 import React from 'react';
 import { inject, observer } from 'mobx-react';
-import { Intent, H1, H6, Classes, Callout, ProgressBar } from '@blueprintjs/core';
+import { Intent, Tooltip, Position, Drawer, Button, H1, H6, Classes, Callout, ProgressBar } from '@blueprintjs/core';
 import { version } from '../../package.json';
 import Accordion from './components/Accordion';
 import { cards } from './components/cards';
 import ActionButton from './components/ActionButton';
+import Settings from './components/Settings';
 import './index.scss';
 const { ipcRenderer } = window.require('electron');
 
@@ -21,6 +22,7 @@ class App extends React.PureComponent {
   constructor(props) {
     super(props);
     this.state = {
+      drawerOpen: false,
       status: AppStatus.configuring,
       progress: undefined,
       error: undefined,
@@ -48,6 +50,14 @@ class App extends React.PureComponent {
       error: undefined,
     });
   };
+
+  showSettings = () => {
+    this.setState({ drawerOpen: true })
+  }
+  
+  hideSettings = () => {
+    this.setState({ drawerOpen: false })
+  }
 
   openOutputFolder = () => {
     const { outputFile } = this.props.appState;
@@ -130,14 +140,38 @@ class App extends React.PureComponent {
   }
 
   render() {
+    const {
+      status,
+      drawerOpen
+    } = this.state;
     return (
       <div className='app bp3-dark'>
         <div className='app__container'>
-          <H1>Bible Karaoke</H1>
+          <div className='app__header'>
+            <H1>Bible Karaoke</H1>
+            <Tooltip className="app__settings-btn" content="Settings" position={Position.TOP}>
+              <Button
+                disabled={status === AppStatus.processing}
+                minimal
+                onClick={this.showSettings}
+                icon='cog'
+              />
+            </Tooltip>
+          </div>
           <div className="app__info">Version {version}</div>
           <Accordion cards={cards} />
           <div className='app__footer'>{this.renderFooter()}</div>
         </div>
+        <Drawer
+          className={Classes.DARK}
+          isOpen={drawerOpen}
+          onClose={this.hideSettings}
+          icon='cog'
+          title="Settings"
+          position={Position.RIGHT}
+        >
+          <Settings />
+        </Drawer>
       </div>
     );
   }
